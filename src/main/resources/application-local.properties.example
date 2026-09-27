@@ -1,0 +1,5 @@
+spring.datasource.url=jdbc:postgresql://localhost:5432/notesdb
+spring.datasource.username=your_db_username
+spring.datasource.password=your_db_password
+
+jwt.secret=generate-with-openssl-rand-base64-32
