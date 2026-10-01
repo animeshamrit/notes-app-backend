@@ -9,6 +9,7 @@ import com.animesh.notesapp.DTO.NoteResponse;
 import com.animesh.notesapp.Model.Note;
 import com.animesh.notesapp.Repository.NoteRepository;
 import com.animesh.notesapp.Repository.UserRepository;
+import com.animesh.notesapp.Service.NoteChunkService;
 
 import java.util.List;
 
@@ -20,9 +21,12 @@ public class NoteController {
 
     private final UserRepository userRepository;
 
-    NoteController(NoteRepository noteRepository, UserRepository userRepository) {
+    private final NoteChunkService noteChunkService;
+
+    NoteController(NoteRepository noteRepository, UserRepository userRepository, NoteChunkService noteChunkService) {
         this.noteRepository = noteRepository;
         this.userRepository = userRepository;
+        this.noteChunkService = noteChunkService;
     }
 
     private Long getCurrentUserId() {
@@ -32,8 +36,10 @@ public class NoteController {
 
     @PostMapping
     public NoteResponse createNote(@RequestBody Note note) {
+        note.setId(null);
         note.setUser(userRepository.getReferenceById(getCurrentUserId()));
         Note saved = noteRepository.save(note);
+        noteChunkService.indexNoteSafely(saved.getId(), saved.getContent());
         return new NoteResponse(saved);
     }
 
@@ -59,7 +65,9 @@ public class NoteController {
                 .map(existing -> {
                     existing.setTitle(updatedNote.getTitle());
                     existing.setContent(updatedNote.getContent());
-                    return ResponseEntity.ok(new NoteResponse(noteRepository.save(existing)));
+                    Note saved = noteRepository.save(existing);
+                    noteChunkService.indexNoteSafely(existing.getId(), existing.getContent());
+                    return ResponseEntity.ok(new NoteResponse(saved));
                 })
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -69,9 +77,25 @@ public class NoteController {
         if (!noteRepository.findByIdAndUserId(id, getCurrentUserId()).isPresent()) {
             return ResponseEntity.notFound().build();
         }
+        noteChunkService.deleteChunks(id);
         noteRepository.deleteById(id);
         return ResponseEntity.noContent().build();
     }
+
+    @GetMapping("/search")
+    public List<SearchResult> search(@RequestParam("q") String q,
+                                    @RequestParam(defaultValue = "5") int limit) {
+        if (q == null || q.isBlank()) {
+            return List.of();
+        }
+        int safeLimit = Math.min(Math.max(limit, 1), 20);
+        return noteChunkService.search(getCurrentUserId(), q, safeLimit)
+                .stream()
+                .map(m -> new SearchResult(m.getNoteId(), m.getTitle(), m.getChunkText(), m.getDistance()))
+                .toList();
+    }
+
+    public record SearchResult(Long noteId, String title, String chunkText, Double distance) {}
 }
 
 /*import org.springframework.http.ResponseEntity;
